@@ -8,8 +8,11 @@ BG = (240, 235, 220)
 WALL_COLOR = (40, 40, 60)
 EXIT_COLOR = (80, 200, 80)
 PATH_COLOR = (255, 200, 50, 160)   # semi-transparent amber for the hint path
-FOG_COLOR  = (18, 18, 30, 235)     # near-opaque dark overlay for fog of war
-FOG_RADIUS = int(CELL * 3.5)       # visible radius in pixels (~3-4 cells)
+FOG_COLOR      = (18, 18, 30)          # solid dark fog fill
+FOG_EDGE_COLOR = (38, 38, 55)          # slightly lighter ring at the lit boundary
+_FOG_KEY       = (0, 0, 0)             # colorkey sentinel → transparent on blit
+                                        # (pure black is safe: no maze element uses it)
+FOG_RADIUS     = CELL * 3              # reveal radius in pixels — exactly 3 cells
 COLS, ROWS = 15, 13
 
 WIDTH = COLS * CELL
@@ -34,8 +37,10 @@ class GameEngine:
         self.won = False
         self.hint_active = False   # True while the BFS path overlay is visible
         self.hint_path   = []      # List of (row, col) cells on the shortest path
-        # Pre-allocate fog surface (reused every frame, only the circle changes)
-        self.fog_surf = pygame.Surface((WIDTH, ROWS * CELL), pygame.SRCALPHA)
+        # Pre-allocate fog surface — regular (non-SRCALPHA) surface with a colorkey.
+        # Any pixel painted _FOG_KEY is skipped on blit → transparent reveal hole.
+        self.fog_surf = pygame.Surface((WIDTH, ROWS * CELL))
+        self.fog_surf.set_colorkey(_FOG_KEY)
 
     def handle_events(self):
         for event in pygame.event.get():
@@ -88,22 +93,29 @@ class GameEngine:
             self.screen.blit(cell_surf, (c * CELL + padding, r * CELL + padding))
 
     def draw_fog(self):
-        """Render a fog-of-war overlay with a transparent reveal circle around the player.
+        """Fog-of-war overlay using the colorkey punch-hole technique.
 
-        Technique: fill an SRCALPHA surface with the fog colour, then punch two
-        concentric transparent circles — a fully-clear inner disc and a
-        semi-transparent outer ring — so the visibility boundary fades gently.
+        Works in all pygame versions (pygame.draw alpha=0 is a no-op on SRCALPHA
+        surfaces in pygame 2; colorkey is reliable across all versions).
+
+        Steps each frame:
+          1. Flood-fill fog_surf with solid dark fog.
+          2. Paint a slightly lighter ring just outside the reveal radius (soft edge).
+          3. Paint the reveal disc in _FOG_KEY (= the surface's colorkey).
+             Colorkey pixels are skipped entirely on blit → clean transparent hole.
         """
         cx, cy = self.player.rect.centerx, self.player.rect.centery
 
-        # Refill fog every frame (player moves, so the hole position changes)
-        self.fog_surf.fill(FOG_COLOR)
+        self.fog_surf.fill(FOG_COLOR)                          # solid dark fog everywhere
 
-        # Soft outer ring — partial transparency for a gradient edge
-        pygame.draw.circle(self.fog_surf, (0, 0, 0, 120), (cx, cy), FOG_RADIUS + CELL // 2)
+        # Soft boundary: lighter fog ring just outside the lit area
+        pygame.draw.circle(
+            self.fog_surf, FOG_EDGE_COLOR,
+            (cx, cy), FOG_RADIUS + CELL // 2
+        )
 
-        # Hard inner disc — fully transparent (the "lit" area)
-        pygame.draw.circle(self.fog_surf, (0, 0, 0, 0), (cx, cy), FOG_RADIUS)
+        # Reveal hole: colorkey colour → these pixels are not blitted at all
+        pygame.draw.circle(self.fog_surf, _FOG_KEY, (cx, cy), FOG_RADIUS)
 
         self.screen.blit(self.fog_surf, (0, 0))
 

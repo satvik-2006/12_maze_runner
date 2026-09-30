@@ -1,12 +1,13 @@
 import pygame
 import time
-from game.maze import generate_maze, CELL
+from game.maze import generate_maze, bfs_solve, CELL
 from game.player import Player
 
 FPS = 60
 BG = (240, 235, 220)
 WALL_COLOR = (40, 40, 60)
 EXIT_COLOR = (80, 200, 80)
+PATH_COLOR = (255, 200, 50, 160)   # semi-transparent amber for the hint path
 COLS, ROWS = 15, 13
 
 WIDTH = COLS * CELL
@@ -29,13 +30,27 @@ class GameEngine:
         self.start_time = time.time()
         self.elapsed = 0
         self.won = False
+        self.hint_active = False   # True while the BFS path overlay is visible
+        self.hint_path   = []      # List of (row, col) cells on the shortest path
 
     def handle_events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return False
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_r:
-                self.reset()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_r:
+                    self.reset()
+                elif event.key == pygame.K_h and not self.won:
+                    self.hint_active = not self.hint_active
+                    if self.hint_active:
+                        # Derive current cell from the player rect's centre
+                        cx = (self.player.rect.centerx) // CELL
+                        cy = (self.player.rect.centery) // CELL
+                        start = (cy, cx)                     # (row, col)
+                        end   = (ROWS - 1, COLS - 1)
+                        self.hint_path = bfs_solve(
+                            self.walls, ROWS, COLS, start, end
+                        )
         return True
 
     def update(self):
@@ -58,9 +73,20 @@ class GameEngine:
                 if w[2]: pygame.draw.line(self.screen, WALL_COLOR, (x+CELL,y), (x+CELL,y+CELL), wall_w)
                 if w[3]: pygame.draw.line(self.screen, WALL_COLOR, (x,y), (x,y+CELL), wall_w)
 
+    def draw_hint_path(self):
+        """Overlay semi-transparent squares on each cell of the BFS hint path."""
+        if not self.hint_active or not self.hint_path:
+            return
+        padding = 6
+        cell_surf = pygame.Surface((CELL - padding * 2, CELL - padding * 2), pygame.SRCALPHA)
+        cell_surf.fill(PATH_COLOR)
+        for r, c in self.hint_path:
+            self.screen.blit(cell_surf, (c * CELL + padding, r * CELL + padding))
+
     def draw(self):
         self.screen.fill(BG)
         self.draw_maze()
+        self.draw_hint_path()                                  # drawn before player
         pygame.draw.rect(self.screen, EXIT_COLOR, self.exit_rect, border_radius=4)
         ex_label = self.font.render("EXIT", True, (20,80,20))
         self.screen.blit(ex_label, (self.exit_rect.x+2, self.exit_rect.y+4))
@@ -68,7 +94,8 @@ class GameEngine:
 
         hud = pygame.Rect(0, ROWS*CELL, WIDTH, 60)
         pygame.draw.rect(self.screen, (30,30,50), hud)
-        time_surf = self.font.render(f"Time: {self.elapsed:.1f}s   R = New Maze", True, (200,200,200))
+        hud_text = f"Time: {self.elapsed:.1f}s   R=New Maze   H=Hint"
+        time_surf = self.font.render(hud_text, True, (200,200,200))
         self.screen.blit(time_surf, (10, ROWS*CELL+18))
 
         if self.won:

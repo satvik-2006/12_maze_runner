@@ -32,6 +32,55 @@ def generate_maze(cols, rows):
             stack.pop()
     return walls
 
+def bfs_solve(walls, rows, cols, start, end):
+    """BFS shortest path between two cells using wall connectivity.
+
+    Args:
+        walls: 2D grid where walls[r][c] = [N, S, E, W] booleans.
+        rows, cols: maze dimensions.
+        start: (row, col) of the start cell.
+        end:   (row, col) of the destination cell.
+
+    Returns:
+        Ordered list of (row, col) tuples from start to end (inclusive),
+        or an empty list if no path exists.
+    """
+    from collections import deque
+
+    # Directions: (dr, dc, wall_index_in_current, wall_index_in_neighbor)
+    # N=0, S=1, E=2, W=3
+    DIRS = [(-1, 0, 0, 1), (1, 0, 1, 0), (0, 1, 2, 3), (0, -1, 3, 2)]
+
+    visited = [[False] * cols for _ in range(rows)]
+    parent  = {}
+    queue   = deque([start])
+    visited[start[0]][start[1]] = True
+
+    while queue:
+        r, c = queue.popleft()
+        if (r, c) == end:
+            # Reconstruct path
+            path = []
+            node = end
+            while node != start:
+                path.append(node)
+                node = parent[node]
+            path.append(start)
+            path.reverse()
+            return path
+
+        for dr, dc, wall_cur, _ in DIRS:
+            # Only traverse if there is NO wall on this side
+            if not walls[r][c][wall_cur]:
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < rows and 0 <= nc < cols and not visited[nr][nc]:
+                    visited[nr][nc] = True
+                    parent[(nr, nc)] = (r, c)
+                    queue.append((nr, nc))
+
+    return []  # No path found
+
+
 def cell_rect(r, c, import_pygame=None):
     import pygame
     return pygame.Rect(c*CELL, r*CELL, CELL, CELL)

@@ -2,6 +2,7 @@ import pygame
 import time
 from game.maze import generate_maze, bfs_solve, CELL
 from game.player import Player
+from game.leaderboard import load_times, save_time
 
 FPS = 60
 BG = (240, 235, 220)
@@ -25,6 +26,7 @@ class GameEngine:
         pygame.display.set_caption("Maze Runner")
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont("monospace", 22)
+        self.small_font = pygame.font.SysFont("monospace", 19)
         self.big_font = pygame.font.SysFont("monospace", 36, bold=True)
         self.reset()
 
@@ -37,6 +39,8 @@ class GameEngine:
         self.won = False
         self.hint_active = False   # True while the BFS path overlay is visible
         self.hint_path   = []      # List of (row, col) cells on the shortest path
+        self.rank            = None   # 1-based leaderboard rank for the last run
+        self.leaderboard_times = load_times()   # top-5 times loaded from disk
         # Pre-allocate fog surface — regular (non-SRCALPHA) surface with a colorkey.
         # Any pixel painted _FOG_KEY is skipped on blit → transparent reveal hole.
         self.fog_surf = pygame.Surface((WIDTH, ROWS * CELL))
@@ -70,6 +74,8 @@ class GameEngine:
         self.elapsed = time.time() - self.start_time
         if self.player.rect.colliderect(self.exit_rect):
             self.won = True
+            # Save completion time and capture leaderboard state for the win screen
+            self.rank, self.leaderboard_times = save_time(self.elapsed)
 
     def draw_maze(self):
         wall_w = 3
@@ -136,13 +142,57 @@ class GameEngine:
         self.screen.blit(time_surf, (10, ROWS*CELL+18))
 
         if self.won:
-            overlay = pygame.Surface((WIDTH, ROWS*CELL), pygame.SRCALPHA)
-            overlay.fill((0,0,0,120))
-            self.screen.blit(overlay, (0,0))
-            msg = self.big_font.render(f"Solved in {self.elapsed:.1f}s!", True, (80,240,80))
-            sub = self.font.render("Press R for a new maze", True, (200,200,200))
-            self.screen.blit(msg, (WIDTH//2 - msg.get_width()//2, ROWS*CELL//2 - 30))
-            self.screen.blit(sub, (WIDTH//2 - sub.get_width()//2, ROWS*CELL//2 + 20))
+            # --- dark overlay behind all win-screen text ---
+            overlay = pygame.Surface((WIDTH, ROWS * CELL), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 160))
+            self.screen.blit(overlay, (0, 0))
+
+            MEDAL  = {1: (255, 215,  0), 2: (192, 192, 192), 3: (205, 127, 50)}
+            MY_CLR = (80,  240,  80)    # highlight colour for the player's entry
+            DIM    = (170, 170, 170)    # colour for other entries
+            cx     = WIDTH // 2
+            y      = 35                 # current draw cursor
+
+            # ── "Solved in X.Xs!" ──────────────────────────────────────────
+            msg = self.big_font.render(f"Solved in {self.elapsed:.1f}s!", True, MY_CLR)
+            self.screen.blit(msg, (cx - msg.get_width() // 2, y))
+            y += msg.get_height() + 8
+
+            # ── rank badge ─────────────────────────────────────────────────
+            if self.rank == 1:
+                badge_txt, badge_clr = "NEW BEST!", MEDAL[1]
+            elif self.rank in MEDAL:
+                badge_txt, badge_clr = f"Rank #{self.rank}  {'*' * (4 - self.rank)}", MEDAL[self.rank]
+            elif self.rank:
+                badge_txt, badge_clr = f"Rank #{self.rank}", (200, 200, 200)
+            else:
+                badge_txt, badge_clr = "Not in top 5", (150, 150, 150)
+            badge = self.font.render(badge_txt, True, badge_clr)
+            self.screen.blit(badge, (cx - badge.get_width() // 2, y))
+            y += badge.get_height() + 12
+
+            # ── leaderboard header ─────────────────────────────────────────
+            sep   = "-" * 26
+            hdr   = self.small_font.render(f"{sep} TOP 5 {sep}", True, (120, 120, 150))
+            self.screen.blit(hdr, (cx - hdr.get_width() // 2, y))
+            y += hdr.get_height() + 6
+
+            # ── entries ────────────────────────────────────────────────────
+            for i, t in enumerate(self.leaderboard_times):
+                pos    = i + 1
+                is_me  = (pos == self.rank)
+                medal_clr = MEDAL.get(pos, DIM)
+                clr    = MY_CLR if is_me else medal_clr
+                marker = " <--" if is_me else "    "
+                line   = f"{pos}.  {t:.2f}s{marker}"
+                surf   = self.small_font.render(line, True, clr)
+                self.screen.blit(surf, (cx - surf.get_width() // 2, y))
+                y += surf.get_height() + 4
+
+            # ── "press R" footer ───────────────────────────────────────────
+            y += 8
+            sub = self.font.render("Press R for a new maze", True, (200, 200, 200))
+            self.screen.blit(sub, (cx - sub.get_width() // 2, y))
         pygame.display.flip()
 
     def run(self):

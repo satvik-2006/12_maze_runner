@@ -8,6 +8,8 @@ BG = (240, 235, 220)
 WALL_COLOR = (40, 40, 60)
 EXIT_COLOR = (80, 200, 80)
 PATH_COLOR = (255, 200, 50, 160)   # semi-transparent amber for the hint path
+FOG_COLOR  = (18, 18, 30, 235)     # near-opaque dark overlay for fog of war
+FOG_RADIUS = int(CELL * 3.5)       # visible radius in pixels (~3-4 cells)
 COLS, ROWS = 15, 13
 
 WIDTH = COLS * CELL
@@ -32,6 +34,8 @@ class GameEngine:
         self.won = False
         self.hint_active = False   # True while the BFS path overlay is visible
         self.hint_path   = []      # List of (row, col) cells on the shortest path
+        # Pre-allocate fog surface (reused every frame, only the circle changes)
+        self.fog_surf = pygame.Surface((WIDTH, ROWS * CELL), pygame.SRCALPHA)
 
     def handle_events(self):
         for event in pygame.event.get():
@@ -83,6 +87,26 @@ class GameEngine:
         for r, c in self.hint_path:
             self.screen.blit(cell_surf, (c * CELL + padding, r * CELL + padding))
 
+    def draw_fog(self):
+        """Render a fog-of-war overlay with a transparent reveal circle around the player.
+
+        Technique: fill an SRCALPHA surface with the fog colour, then punch two
+        concentric transparent circles — a fully-clear inner disc and a
+        semi-transparent outer ring — so the visibility boundary fades gently.
+        """
+        cx, cy = self.player.rect.centerx, self.player.rect.centery
+
+        # Refill fog every frame (player moves, so the hole position changes)
+        self.fog_surf.fill(FOG_COLOR)
+
+        # Soft outer ring — partial transparency for a gradient edge
+        pygame.draw.circle(self.fog_surf, (0, 0, 0, 120), (cx, cy), FOG_RADIUS + CELL // 2)
+
+        # Hard inner disc — fully transparent (the "lit" area)
+        pygame.draw.circle(self.fog_surf, (0, 0, 0, 0), (cx, cy), FOG_RADIUS)
+
+        self.screen.blit(self.fog_surf, (0, 0))
+
     def draw(self):
         self.screen.fill(BG)
         self.draw_maze()
@@ -91,6 +115,7 @@ class GameEngine:
         ex_label = self.font.render("EXIT", True, (20,80,20))
         self.screen.blit(ex_label, (self.exit_rect.x+2, self.exit_rect.y+4))
         self.player.draw(self.screen)
+        self.draw_fog()                                        # fog sits on top; hole reveals player
 
         hud = pygame.Rect(0, ROWS*CELL, WIDTH, 60)
         pygame.draw.rect(self.screen, (30,30,50), hud)
